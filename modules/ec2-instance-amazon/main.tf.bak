@@ -1,0 +1,46 @@
+resource "aws_instance" "this" {
+    count                  = var.instance_count
+    ami                    = var.ami
+    instance_type          = var.instance_type
+    subnet_id              = var.subnet_id
+    key_name               = var.key_name
+    vpc_security_group_ids = var.vpc_security_group_ids
+    dynamic "root_block_device" {
+        for_eatch = var.root_block_device
+        content {
+            delete_on_termination = lookup(root_block_device.value, "delete_on_termination", null)
+            volume_size           = lookup(root_block_device.value, "volume_type", null)
+            volume_type           = lookup(root_block_device.value, "volume_size", null)
+        }
+    }
+    root_block_device {
+        volume_type           = var.root_volume_type
+        volume_size           = var.root_volume_size
+        delete_on_termination = true
+    }
+    user_data = "${file("${path.module}/scripts/${var.user_data_name}")}"
+
+    tags = merge(
+        {
+           "Name" = var.instance_count > 1 || var.use_num_suffix ? format("%s-%d", var.name, count.index + 1) : var.name
+        },
+        var.tags,
+    )
+}
+resource "aws_ebs_volume" "this" {
+    count                  = var.instance_count
+    availability_zone      = aws_instance.this[count.index].availability_zone
+    type                   = var.data_volume_type
+    size                   = var.data_volume_size
+    skip_destroy           = true
+    tags = {
+        "Name" = var.instance_count > 1 || var.use_num_suffix ? format("%s-%d", var.name, count.index + 1) : var.name 
+    }
+}
+resource "aws_volume_attachment" "this" {
+    count                  = var.instance_count
+    device_name            = var.data_device_name
+    volume_id              = aws_ebs_volume.this[count.index].id
+    instance_id            = aws_instance.this[count.index].id
+    skip_destroy           = true
+}
